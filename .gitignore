@@ -161,4 +161,4 @@ cython_debug/
 
 # docker volumes
 docker/data/
-docker/data_airflow/
+docker/dags/

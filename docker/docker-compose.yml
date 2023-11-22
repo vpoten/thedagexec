@@ -189,7 +189,5 @@ services:
     ports:
       - 8090:8080
     volumes:
-      - ./data_airflow:/usr/local/airflow/dags
-    environment:
-      LOAD_EX: 'y'
-    entrypoint: '/airflow_after_entrypoint_script.sh'
+      - ./dags:/usr/local/airflow/dags
+    command: "bash -c /airflow_after_entrypoint_script.sh"
