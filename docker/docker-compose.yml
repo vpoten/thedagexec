@@ -189,5 +189,5 @@ services:
     ports:
       - 8090:8080
     volumes:
-      - ./dags:/usr/local/airflow/dags
+      - ./dags:/opt/airflow/dags
     command: "bash -c /airflow_after_entrypoint_script.sh"
