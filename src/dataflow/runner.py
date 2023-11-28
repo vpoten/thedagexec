@@ -8,6 +8,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
 import pyspark.sql.functions as sf
 
+KAFKA_URL = 'localhost:9092'
+
 
 def create_hdfs_client(url: str, user: str) -> InsecureClient:
     return InsecureClient(url, user=user)
@@ -147,7 +149,10 @@ def write_to_sink(sink: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> Non
             df_by_name[sink["input"]].write.json(path, mode=sink.get("saveMode", "overwrite").lower())
     elif sink["format"].upper() == "KAFKA":
         for topic in sink.get("topics", []):
-            pass
+            df_by_name[sink["input"]].write.format("kafka") \
+                .option("kafka.bootstrap.servers", KAFKA_URL) \
+                .option("topic", topic) \
+                .save()
 
 
 def exec_dataflow(spark: SparkSession, dataflow: Dict[str, Any]) -> None:
