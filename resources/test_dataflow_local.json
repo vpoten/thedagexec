@@ -1,0 +1,78 @@
+{
+  "dataflows": [
+    {
+      "name": "prueba-acceso",
+      "sources": [
+        {
+          "name": "person_inputs",
+          "path": "downloads/input/*",
+          "format": "JSON"
+        }
+      ],
+      "transformations": [
+        {
+          "name": "validation",
+          "type": "validate_fields",
+          "params": {
+            "input": "person_inputs",
+            "validations": [
+              {
+                "field": "office",
+                "validations": [
+                  "notEmpty"
+                ]
+              },
+              {
+                "field": "age",
+                "validations": [
+                  "notNull"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ok_with_date",
+          "type": "add_fields",
+          "params": {
+            "input": "validation_ok",
+            "addFields": [
+              {
+                "name": "dt",
+                "function": "current_timestamp"
+              }
+            ]
+          }
+        }
+      ],
+      "sinks": [
+        {
+          "input": "ok_with_date",
+          "name": "raw-ok",
+          "topics": [
+            "person"
+          ],
+          "format": "KAFKA"
+        },
+        {
+          "input": "validation_ko",
+          "name": "raw-ko",
+          "paths": [
+            "downloads/output/discards"
+          ],
+          "format": "JSON",
+          "saveMode": "OVERWRITE"
+        },
+        {
+          "input": "ok_with_date",
+          "name": "raw-ok-fs",
+          "paths": [
+            "downloads/output/accepted"
+          ],
+          "format": "JSON",
+          "saveMode": "OVERWRITE"
+        }
+      ]
+    }
+  ]
+}

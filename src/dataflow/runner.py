@@ -18,24 +18,28 @@ def load_json(path: str, client: InsecureClient = None) -> Dict[str, Any]:
     Loads json from HDFS or local filesystem
     """
     if client is None:
-        return json.loads(path)
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
 
     with client.read(path, encoding='utf-8') as reader:
         return json.load(reader)
 
 
-def build_source(spark: SparkSession, source: Dict[str, Any]) -> Dict[str, Any]:
+def build_source(spark: SparkSession, source: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> Dict[str, Any]:
     def _read_dataframe() -> Optional[DataFrame]:
         if source["format"].upper() == 'JSON':
             return spark.read.json(source["path"])
         return None
 
+    output = {
+        source["name"]: _read_dataframe(),
+    }
+    df_by_name.update(output)
+
     return {
         "name": source["name"],
         "format": source["format"],
-        "output": {
-            source["name"]: _read_dataframe(),
-        }
+        "output": output
     }
 
 
@@ -59,7 +63,7 @@ def _validation_func(field: str, func_name: str) -> Any:
     return None
 
 
-def build_transformation(trans: Dict[str, Any], df_by_name: Dict[str][DataFrame]) -> Dict[str, Any]:
+def build_transformation(trans: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> Dict[str, Any]:
     def _build_validate_ok(for_ko: bool = False) -> DataFrame:
         source_df = df_by_name[trans["params"]["input"]]
         field_funcs = [[(val["field"], fval) for fval in val["validations"]] for val in trans["params"]["validations"]]
@@ -102,14 +106,17 @@ def build_transformation(trans: Dict[str, Any], df_by_name: Dict[str][DataFrame]
             }
         return None
 
+    output = _build_output()
+    df_by_name.update(output)
+
     return {
         "name": trans["name"],
         "type": trans["type"],
-        "output": _build_output()
+        "output": output
     }
 
 
-def write_to_sink(sink: Dict[str, Any], df_by_name: Dict[str][DataFrame]) -> None:
+def write_to_sink(sink: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> None:
     if sink["format"].upper() == 'JSON':
         for path in sink.get("paths", []):
             df_by_name[sink["input"]].write.json(path, mode=sink.get("saveMode", "overwrite").lower())
@@ -118,8 +125,25 @@ def write_to_sink(sink: Dict[str, Any], df_by_name: Dict[str][DataFrame]) -> Non
             pass
 
 
+def exec_dataflow(spark: SparkSession, dataflow: Dict[str, Any]) -> None:
+    # store dataframe by name in this dict
+    df_by_name = {}
+
+    sources = [build_source(spark, source, df_by_name) for source in dataflow["sources"]]
+    transformations = [build_transformation(trans, df_by_name) for trans in dataflow["transformations"]]
+
+    for sink in dataflow["sinks"]:
+        write_to_sink(sink, df_by_name)
+
+
 def main() -> None:
-    pass
+    metadata_path = 'resources/test_dataflow_local.json'
+    metadata = load_json(metadata_path)
+
+    spark = SparkSession.builder.getOrCreate()
+
+    for dataflow in metadata["dataflows"]:
+        exec_dataflow(spark, dataflow)
 
 
 if __name__ == "__main__":
