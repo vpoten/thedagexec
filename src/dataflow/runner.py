@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from itertools import chain
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 
 from hdfs import InsecureClient
 from pyspark.sql import SparkSession
@@ -63,11 +63,22 @@ def _validation_func(field: str, func_name: str) -> Any:
     return None
 
 
+def _get_validation_fields_and_funcs(trans: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """
+    Get the list of tuples (field, function) derived from transformation validations
+    """
+    aux = [[(val["field"], fval) for fval in val["validations"]] for val in trans["params"]["validations"]]
+    return list(chain.from_iterable(aux))
+
+
+def _get_validation_funcs_by_field(trans: Dict[str, Any]) -> Dict[str, Any]:
+    return {val["field"]: val["validations"] for val in trans["params"]["validations"]}
+
+
 def build_transformation(trans: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> Dict[str, Any]:
     def _build_validate_ok(for_ko: bool = False) -> DataFrame:
         source_df = df_by_name[trans["params"]["input"]]
-        field_funcs = [[(val["field"], fval) for fval in val["validations"]] for val in trans["params"]["validations"]]
-        field_funcs = list(chain.from_iterable(field_funcs))
+        field_funcs = _get_validation_fields_and_funcs(trans)
 
         # initialize the condition with the first function
         if for_ko is True:
@@ -85,7 +96,21 @@ def build_transformation(trans: Dict[str, Any], df_by_name: Dict[str, DataFrame]
 
     def _build_validate_ko() -> DataFrame:
         ko_df = _build_validate_ok(for_ko=True)
-        # TODO add error by field
+        funcs_by_field = _get_validation_funcs_by_field(trans)
+
+        # add array columns for field errors
+        for field, funcs in funcs_by_field.items():
+            errors = [sf.when(~_validation_func(field, f), f).otherwise("") for f in funcs]
+            array_col_name = f'{field}_errors'
+            ko_df = ko_df.withColumn(array_col_name, sf.array(*errors))
+            ko_df = ko_df.withColumn(array_col_name, sf.array_remove(sf.col(array_col_name), ""))
+
+        error_cols = [sf.col(f'{f}_errors') for f in funcs_by_field.keys()]
+
+        # merge arrays of errors into a single column
+        ko_df = ko_df.withColumn('arraycoderrorbyfield', sf.struct(*error_cols))
+        for error_col in error_cols:
+            ko_df = ko_df.drop(error_col)
         return ko_df
 
     def _build_add_fields_transform() -> DataFrame:
