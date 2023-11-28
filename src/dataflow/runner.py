@@ -148,11 +148,22 @@ def write_to_sink(sink: Dict[str, Any], df_by_name: Dict[str, DataFrame]) -> Non
         for path in sink.get("paths", []):
             df_by_name[sink["input"]].write.json(path, mode=sink.get("saveMode", "overwrite").lower())
     elif sink["format"].upper() == "KAFKA":
+        kafka_df = add_json_column_with_all_fields(df_by_name[sink["input"]], 'value')
+
         for topic in sink.get("topics", []):
-            df_by_name[sink["input"]].write.format("kafka") \
+            kafka_df \
+                .selectExpr("CAST(value AS STRING)") \
+                .write \
+                .format("kafka") \
                 .option("kafka.bootstrap.servers", KAFKA_URL) \
                 .option("topic", topic) \
                 .save()
+
+
+def add_json_column_with_all_fields(df: DataFrame, col_name: str) -> DataFrame:
+    return df \
+        .withColumn(col_name, sf.struct(*(sf.col(c) for c in df.columns))) \
+        .withColumn(col_name, sf.to_json(sf.col(col_name)))
 
 
 def exec_dataflow(spark: SparkSession, dataflow: Dict[str, Any]) -> None:
@@ -170,7 +181,9 @@ def main() -> None:
     metadata_path = 'resources/test_dataflow_local.json'
     metadata = load_json(metadata_path)
 
-    spark = SparkSession.builder.getOrCreate()
+    spark = SparkSession.builder \
+        .config('spark.jars.packages', 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0') \
+        .getOrCreate()
 
     for dataflow in metadata["dataflows"]:
         exec_dataflow(spark, dataflow)
